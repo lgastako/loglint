@@ -9,7 +9,10 @@ logger = logging.getLogger(__name__)
 
 
 def get_next_token(tokens):
-    token = tokens.pop(0)
+    while True:
+        token = tokens.pop(0)
+        if token[0] not in (5, 54):
+            break
     return token
 
 

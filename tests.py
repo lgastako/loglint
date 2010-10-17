@@ -163,5 +163,33 @@ class LoggerFormatStringStateTests(unittest.TestCase):
                           state.count_format_specifiers(state.current_token))
 
 
+class IntegrationTests(unittest.TestCase):
+
+    def test_multiple_lines(self):
+        src = """
+                  logger.debug('hi %s',
+                               'there')
+               """
+        sio = StringIO(src)
+        tokens = list(tokenize.generate_tokens(sio.readline))
+        state = InitialState(TEST_FILENAME)
+        new_state, tokens = state.process(tokens)
+        self.assertEquals(PossibleLoggerStatementState.NAME, new_state)
+        self.assertEquals(tokens[0][1], ".")
+        state = PossibleLoggerStatementState(TEST_FILENAME)
+        new_state, tokens = state.process(tokens)
+
+    def test_ignore_newlines(self):
+        src = """
+                  logger.debug("hi there")
+              """
+
+        sio = StringIO(src)
+        tokens = list(tokenize.generate_tokens(sio.readline))
+        state = InitialState(TEST_FILENAME)
+        new_state, tokens = state.process(tokens)
+        self.assertEquals(PossibleLoggerStatementState.NAME, new_state)
+
+
 if __name__ == '__main__':
     unittest.main()
