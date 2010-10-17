@@ -50,12 +50,24 @@ class BaseState(object):
         print "    %s" % line
         print
 
+    @staticmethod
+    def _matches_token_req(value, required_value):
+        if required_value is None:
+            return True
+        if isinstance(required_value, (list, tuple, set)):
+            return value in required_value
+        return value == required_value
+
+    def is_token(self, required_token_string=None, required_token_type=None):
+        token_type, token_string = self.current_token[0:2]
+        return (self._matches_token_req(token_type, required_token_type) and
+                self._matches_token_req(token_string, required_token_string))
+
 
 class OpenParenMixin(object):
 
     def is_open_paren(self):
-        token_type, token_string, _, _, _ = self.current_token
-        return token_type == 51 and token_string == "("
+        return self.is_token("(", 51)
 
 
 class LoggerFormatStringState(BaseState, OpenParenMixin):
@@ -82,13 +94,11 @@ class LoggerFormatStringState(BaseState, OpenParenMixin):
         return count
 
     def is_close_paren(self):
-        token_type, token_string, _, _, _ = self.current_token
-        return token_type == 51 and token_string == ")"
+        return self.is_token(")", 51)
 
     def is_comma(self):
-        token_type, token_string, _, _, _ = self.current_token
         # TODO: token_type
-        return token_string == ","
+        return self.is_token(",")
 
     def process(self, tokens):
         # At this point the format string is going to be the first
@@ -162,17 +172,13 @@ class PossibleLoggerStatementState(BaseState, OpenParenMixin):
         return "initial", tokens
 
     def is_dot(self):
-        token_type, token_string, _, _, _ = self.current_token
-        return token_type == 51 and token_string == "."
+        return self.is_token(".", 51)
 
     def is_logger_method(self):
-#        import ipdb; ipdb.set_trace()
-        token_type, token_string, _, _, _ = self.current_token
-        return token_type == 1 and token_string in self.LOGGER_METHODS
+        return self.is_token(self.LOGGER_METHODS, 1)
 
     def is_fmt_string(self):
-        token_type, _, _, _, _ = self.current_token
-        return token_type == 3
+        return self.is_token(required_token_type=3)
 
     def process(self, tokens):
         # If we get here, the previous state has already swallowed the
