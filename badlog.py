@@ -70,7 +70,7 @@ class BaseState(object):
     def current_token(self):
         return self.consumed_tokens[-1]
 
-    def format_error(self, msg):
+    def format_message(self, msg):
         self.writer.write(msg)
         self.writer.write("\n")
 
@@ -79,6 +79,13 @@ class BaseState(object):
 
         self.writer.write("At line %d of '%s':\n" % (row, self.filename))
         self.writer.write("    %s\n\n" % line)
+
+    def format_error(self, msg):
+        return self.format_message("ERROR: " + msg)
+
+    def format_warning(self, msg):
+        if not self.options.no_warnings:
+            return self.format_message("WARNING: " + msg)
 
     @staticmethod
     def _matches_token_req(value, required_value):
@@ -131,6 +138,9 @@ class TokenAnalysisMixin(object):
 
     def is_asterisk(self):
         return self.is_token("*", tokenize.OP)
+
+    def is_plus(self):
+        return self.is_token("+", tokenize.OP)
 
     def is_number(self):
         return self.is_token(required_token_type=tokenize.NUMBER)
@@ -205,6 +215,13 @@ class CountingArgsState(BaseState, TokenAnalysisMixin):
                 # It's not a .format... don't know what is is, so
                 # just gonna rewind and move on.
                 self.rewind(tokens)
+
+        # In the long run we want to handle these cases but for now
+        # we just bail.
+        if self.is_plus():
+            self.consume_next_token(tokens)  # eat whatever was added
+            self.format_warning("Can't handle added (+) format strings (yet)")
+            return Transition("initial", tokens)
 
         # Ok, so if we've made it here then we found something other
         # than a close paren which means it's an arg.. so we increment
@@ -500,6 +517,9 @@ def parse_args():
                       action="store_true")
     parser.add_option("--ignore-pct-formats",
                       help="don't warn on % formats in logger statements",
+                      action="store_true")
+    parser.add_option("--no-warnings",
+                      help="don't show warnings about un-handle-able lines",
                       action="store_true")
     return parser.parse_args()
 

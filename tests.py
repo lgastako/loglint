@@ -241,14 +241,16 @@ class IntegrationTests(AbstractStateTest):
     def test_one_fmt_zero_args(self):
         src = """logger.debug('foo: %s')"""
         self.examine_str(src)
-        self.assertEquals("Logger statement has 1 format specifiers but"
+        self.assertEquals("ERROR: Logger statement has 1 format"
+                          " specifiers but"
                           " 0 argument(s).\nAt line 1 of '__TESTS__':"
                           "\n    logger.debug('foo: %s')\n\n", self.output)
 
     def test_one_fmt_two_args(self):
         src = """logger.debug('foo: %s', 1, 2)"""
         self.examine_str(src)
-        self.assertEquals("Logger statement has 1 format specifiers but 2"
+        self.assertEquals("ERROR: Logger statement has 1 format"
+                          " specifiers but 2"
                           " argument(s).\nAt line 1 of '__TESTS__':\n "
                           "   logger.debug('foo: %s', 1, 2)\n\n",
                           self.output)
@@ -256,14 +258,16 @@ class IntegrationTests(AbstractStateTest):
     def test_two_fmt_one_args(self):
         src = """logger.debug('foo: %s %s', 1)"""
         self.examine_str(src)
-        self.assertEquals("Logger statement has 2 format specifiers but 1 "
+        self.assertEquals("ERROR: Logger statement has 2 format"
+                          " specifiers but 1 "
                           "argument(s).\nAt line 1 of '__TESTS__':\n    l"
                           "ogger.debug('foo: %s %s', 1)\n\n", self.output)
 
     def test_no_fmt_one_args(self):
         src = """logger.debug('foo.', 1)"""
         self.examine_str(src)
-        self.assertEquals("Logger statement has 0 format specifiers but 1"
+        self.assertEquals("ERROR: Logger statement has 0 format"
+                          " specifiers but 1"
                           " argument(s).\nAt line 1 of '__TESTS__':\n    "
                           "logger.debug('foo.', 1)\n\n", self.output)
 
@@ -288,7 +292,8 @@ class IntegrationTests(AbstractStateTest):
                               1, 2)
               """
         self.examine_str(src)
-        self.assertEquals("Logger statement has 1 format specifiers but 2"
+        self.assertEquals("ERROR: Logger statement has 1 format"
+                          " specifiers but 2"
                           " argument(s).\nAt line 3 of '__TESTS__':\n "
                           "                                 1, 2)\n\n",
                           self.output)
@@ -299,7 +304,8 @@ class IntegrationTests(AbstractStateTest):
                               1)
               """
         self.examine_str(src)
-        self.assertEquals("Logger statement has 2 format specifiers but 1 "
+        self.assertEquals("ERROR: Logger statement has 2 format"
+                          " specifiers but 1 "
                           "argument(s).\nAt line 3 of '__TESTS__':\n   "
                           "                               1)\n\n", self.output)
 
@@ -338,7 +344,8 @@ class IntegrationTests(AbstractStateTest):
     def test_percent_after_fmt(self):
         src = "logger.debug('foo: %s' % s)"
         self.examine_str(src)
-        self.assertEquals("Logger statement uses % operator for formatting"
+        self.assertEquals("ERROR: Logger statement uses % operator"
+                          " for formatting"
                           " instead of letting logger handle it.\nAt line "
                           "1 of '__TESTS__':\n    logger.debug('foo: %s' %"
                           " s)\n\n", self.output)
