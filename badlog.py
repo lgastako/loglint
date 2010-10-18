@@ -145,8 +145,11 @@ class TokenAnalysisMixin(object):
     def is_logger_method(self):
         return self.is_token(self.LOGGER_METHODS, tokenize.NAME)
 
-    def is_fmt_string(self):
+    def is_format_string(self):
         return self.is_token(required_token_type=tokenize.STRING)
+
+    def is_format_method(self):
+        return self.is_token("format", tokenize.NAME)
 
     def is_possible_logger_statement(self):
         return self.is_token(self.POSSIBLE_LOGGER_STRINGS, 1)
@@ -190,6 +193,18 @@ class CountingArgsState(BaseState, TokenAnalysisMixin):
                                   " formatting instead of letting logger"
                                   " handle it.")
             return Transition("initial", tokens)
+
+        # We also need to handle the case where someone did something
+        # like this:
+        # logger.debug("foo: {bar}".format(**baz))
+        if self.is_dot():
+            self.consume_next_token(tokens)
+            if self.is_format_method():
+                return Transition("initial", tokens)
+            else:
+                # It's not a .format... don't know what is is, so
+                # just gonna rewind and move on.
+                self.rewind(tokens)
 
         # Ok, so if we've made it here then we found something other
         # than a close paren which means it's an arg.. so we increment
@@ -284,7 +299,7 @@ class LoggerFormatStringState(BaseState, TokenAnalysisMixin):
 
         while True:
             self.consume_next_token(tokens)
-            if self.is_fmt_string():
+            if self.is_format_string():
                 count += self.count_format_specifiers()
             elif self.is_asterisk():
                 # Ok we have something like:
@@ -384,7 +399,7 @@ class PossibleLoggerStatementState(BaseState, TokenAnalysisMixin):
                 return self.back_to_initial(tokens)
 
             self.consume_next_token(tokens)
-            if not self.is_fmt_string():
+            if not self.is_format_string():
                 return self.back_to_initial(tokens)
 
             # If we made it here, we have popped a format string off,

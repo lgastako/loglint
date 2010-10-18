@@ -129,7 +129,7 @@ class PossibleLoggerStatementStateTests(AbstractStateTest):
         state.consume_next_token(tokens)
         self.assertEquals(True, state.is_open_paren())
 
-    def test_is_fmt_string(self):
+    def test_is_format_string(self):
         src = "logger.debug('hi there')"
         sio = StringIO(src)
         tokens = list(tokenize.generate_tokens(sio.readline))
@@ -139,7 +139,7 @@ class PossibleLoggerStatementStateTests(AbstractStateTest):
         get_next_token(tokens)  # Eat the '(' token
         state = self.init_test_state(PossibleLoggerStatementState)
         state.consume_next_token(tokens)
-        self.assertEquals(True, state.is_fmt_string())
+        self.assertEquals(True, state.is_format_string())
 
     def test_back_to_initial(self):
         src = "logger.debug('hi there')"
@@ -345,6 +345,11 @@ class IntegrationTests(AbstractStateTest):
 
     def test_multiplied_string(self):
         src = "logger.debug('-' * 30)"
+        self.examine_str(src)
+        self.assertEquals("", self.output)
+
+    def test_format_string_with_dot_format(self):
+        src = "logger.debug('blah: {blah1}'.format(**some_dict))"
         self.examine_str(src)
         self.assertEquals("", self.output)
 
