@@ -1,25 +1,32 @@
 #!/usr/bin/env python
 
-import logging
 import optparse
-import os
 import tokenize
+import logging
+import sys
+import os
 
 logger = logging.getLogger(__name__)
+
+# Not sure why 54 is not in token constants
+IGNORED_TOKENS = set([tokenize.INDENT,
+                      tokenize.NEWLINE,
+                      54])
 
 
 def get_next_token(tokens):
     while True:
         token = tokens.pop(0)
-        if token[0] not in (5, 54):
+        if token[0] not in IGNORED_TOKENS:
             break
     return token
 
 
 class BaseState(object):
 
-    def __init__(self, filename):
+    def __init__(self, filename, writer):
         self.filename = filename
+        self.writer = writer
         self.consumed_tokens = []
 
     @property
@@ -46,12 +53,14 @@ class BaseState(object):
         return self.consumed_tokens[-1]
 
     def format_error(self, msg):
-        print msg
+        self.writer.write(msg)
+        self.writer.write("\n")
+
         row, _ = self.current_token[2]
         line = self.current_token[4].rstrip()
-        print "At line %d of '%s':" % (row, self.filename)
-        print "    %s" % line
-        print
+
+        self.writer.write("At line %d of '%s':\n" % (row, self.filename))
+        self.writer.write("    %s\n\n" % line)
 
     @staticmethod
     def _matches_token_req(value, required_value):
@@ -133,29 +142,43 @@ class LoggerFormatStringState(BaseState, OpenParenMixin):
                 if self.is_open_paren():
                     open_parens += 1
                 elif self.is_close_paren():
+                    # XXX: doesn't work because an arg could be a
+                    # function call.  have to deal with
+                    # sub-expressions in a generic way.
                     if open_parens > 0:
                         open_parens -= 1
                         confirmed += 1
                     else:
-                        self.format_error("Logger statement has %d format"
-                                          " specifiers but only %d arguments" %
-                                          (count, confirmed))
+                        self.format_diff_error(count, confirmed)
                         return "initial", tokens
                 elif open_parens <= 0:
                     confirmed += 1
 
-            # If we made it here that means that confirmed hit count, so
-            # we are good and can go back to initial.
-            return "initial", tokens
+            # If we made it here that means that confirmed hit count,
+            # so now we need to check and make sure that the next
+            # token is a close paren.
+            return self.confirm_close_paren(tokens, count, confirmed)
         else:
             # No format specifiers, so read the next token and confirm
-            # that it's a close paren otherwise print a warning.
-            self.consume_next_token(tokens)
-            if not self.is_close_paren():
-                self.format_error("Logger statement with no format specifiers "
-                                  "but one or more args")
-            return "initial", tokens
+            # that it's a close paren.
+            return self.confirm_close_paren(tokens, count, 0)
         return "OH SHIT HOW DID WE GET HERE?", None
+
+    def format_diff_error(self, count, confirmed):
+        self.format_error("Logger statement has %d format"
+                          " specifiers but %d arguments" %
+                          (count, confirmed))
+
+    def confirm_close_paren(self, tokens, count, confirmed):
+        extra = 0
+        while True:
+            self.consume_next_token(tokens)
+            if self.is_close_paren():
+                break
+            extra += 1
+        if extra > 0:
+            self.format_diff_error(count, confirmed + extra)
+        return "initial", tokens
 
 
 class PossibleLoggerStatementState(BaseState, OpenParenMixin):
@@ -253,42 +276,51 @@ class BrokenLoggingDetectorStateMachine(object):
                       LoggerFormatStringState]:
             self.states[state.NAME] = state
 
-    def consume(self, tokens, filename):
-        state = InitialState(filename)
+    def consume(self, tokens, filename, writer):
+        state = InitialState(filename, writer)
         while True:
             try:
                 new_state_name, tokens = state.process(tokens)
                 if new_state_name is None:
                     break
-                state = self.states[new_state_name](filename)
+                state = self.states[new_state_name](filename, writer)
             except StopIteration:
                 break
 
 
-def examine(filename):
+def examine_filelike(filename, filelike, writer=sys.stdout):
+    tokens = list(tokenize.generate_tokens(filelike.readline))
     machine = BrokenLoggingDetectorStateMachine()
+    machine.consume(tokens, filename, writer)
+
+
+def examine(filename, verbose, writer=sys.stdout):
+    if verbose:
+        writer.write("Checking file: %s\n" % filename)
     with open(filename) as f:
-        tokens = list(tokenize.generate_tokens(f.readline))
-        machine.consume(tokens, filename)
+        examine_filelike(filename, f, writer=writer)
 
 
-def recursively_examine(filename):
+def recursively_examine(filename, verbose, writer=sys.stdout):
     for root, dirs, files in os.walk(filename):
         for fn in files:
             if fn.endswith(".py"):
                 full_path = os.path.join(root, fn)
-                examine(full_path)
+                examine(full_path, verbose, writer=writer)
 
 
 def main():
     parser = optparse.OptionParser()
+    parser.add_option("-v", "--verbose",
+                      help="enable verbose output",
+                      action="store_true")
     options, args = parser.parse_args()
 
     for filename in args:
         if os.path.isdir(filename):
-            recursively_examine(filename)
+            recursively_examine(filename, options.verbose)
         else:
-            examine(filename)
+            examine(filename, options.verbose)
 
 
 if __name__ == '__main__':

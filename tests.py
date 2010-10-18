@@ -4,6 +4,7 @@ import tokenize
 from StringIO import StringIO
 
 from badlog import get_next_token
+from badlog import examine_filelike
 from badlog import BaseState
 from badlog import InitialState
 from badlog import PossibleLoggerStatementState
@@ -12,10 +13,26 @@ from badlog import LoggerFormatStringState
 TEST_FILENAME = "test.py"
 
 
-class BaseStateTests(unittest.TestCase):
+class AbstractStateTest(unittest.TestCase):
+
+    def setUp(self):
+        self.writer = StringIO()
+        self._output = None
+
+    def init_test_state(self, state_class):
+        return state_class(TEST_FILENAME, self.writer)
+
+    @property
+    def output(self):
+        if not self._output:
+            self._output = self.writer.getvalue()
+        return self._output
+
+
+class BaseStateTests(AbstractStateTest):
 
     def test_rewind(self):
-        state = BaseState(TEST_FILENAME)
+        state = self.init_test_state(BaseState)
 
         expected_tokens = ["a", "b", "c", "d"]
         tokens = expected_tokens[:]
@@ -26,7 +43,7 @@ class BaseStateTests(unittest.TestCase):
         self.assertEquals(expected_tokens, tokens)
 
     def test_rewind_all(self):
-        state = BaseState(TEST_FILENAME)
+        state = self.init_test_state(BaseState)
 
         expected_tokens = ["a", "b", "c", "d"]
         tokens = expected_tokens[:]
@@ -39,13 +56,13 @@ class BaseStateTests(unittest.TestCase):
         self.assertEquals(expected_tokens, tokens)
 
 
-class InitialStateTests(unittest.TestCase):
+class InitialStateTests(AbstractStateTest):
 
     def test_state_transition_on_valid_logger(self):
         src = "logger.debug('hi there')"
         sio = StringIO(src)
         tokens = list(tokenize.generate_tokens(sio.readline))
-        state = InitialState(TEST_FILENAME)
+        state = self.init_test_state(InitialState)
         new_state, tokens = state.process(tokens)
         self.assertEquals(PossibleLoggerStatementState.NAME, new_state)
         self.assertEquals(tokens[0][1], ".")
@@ -54,20 +71,20 @@ class InitialStateTests(unittest.TestCase):
         src = "foo('hi there')"
         sio = StringIO(src)
         tokens = list(tokenize.generate_tokens(sio.readline))
-        state = InitialState(TEST_FILENAME)
+        state = self.init_test_state(InitialState)
         new_state, tokens = state.process(tokens)
         self.assertEquals(InitialState.NAME, new_state)
         self.assertEquals(tokens[0][1], "(")
 
 
-class PossibleLoggerStatementStateTests(unittest.TestCase):
+class PossibleLoggerStatementStateTests(AbstractStateTest):
 
     def test_state_transition_on_valid_logger(self):
         src = "logger.debug('hi there')"
         sio = StringIO(src)
         tokens = list(tokenize.generate_tokens(sio.readline))
         get_next_token(tokens)  # Eat the 'logger' token
-        state = PossibleLoggerStatementState(TEST_FILENAME)
+        state = self.init_test_state(PossibleLoggerStatementState)
         new_state, tokens = state.process(tokens)
         self.assertEquals(LoggerFormatStringState.NAME, new_state)
         self.assertEquals(tokens[0][1], "'hi there'")
@@ -77,7 +94,7 @@ class PossibleLoggerStatementStateTests(unittest.TestCase):
         sio = StringIO(src)
         tokens = list(tokenize.generate_tokens(sio.readline))
         get_next_token(tokens)  # Eat the 'logger' token
-        state = PossibleLoggerStatementState(TEST_FILENAME)
+        state = self.init_test_state(PossibleLoggerStatementState)
         new_state, tokens = state.process(tokens)
         self.assertEquals(InitialState.NAME, new_state)
         self.assertEquals(tokens[0][1], "(")
@@ -87,7 +104,7 @@ class PossibleLoggerStatementStateTests(unittest.TestCase):
         sio = StringIO(src)
         tokens = list(tokenize.generate_tokens(sio.readline))
         get_next_token(tokens)  # Eat the 'logger' token
-        state = PossibleLoggerStatementState(TEST_FILENAME)
+        state = self.init_test_state(PossibleLoggerStatementState)
         state.consume_next_token(tokens)
         self.assertEquals(True, state.is_dot())
 
@@ -98,7 +115,7 @@ class PossibleLoggerStatementStateTests(unittest.TestCase):
         get_next_token(tokens)  # Eat the 'logger' token
         get_next_token(tokens)  # Eat the '.' token
         get_next_token(tokens)  # Eat the 'debug' token
-        state = PossibleLoggerStatementState(TEST_FILENAME)
+        state = self.init_test_state(PossibleLoggerStatementState)
         state.consume_next_token(tokens)
         self.assertEquals(True, state.is_open_paren())
 
@@ -110,7 +127,7 @@ class PossibleLoggerStatementStateTests(unittest.TestCase):
         get_next_token(tokens)  # Eat the '.' token
         get_next_token(tokens)  # Eat the 'debug' token
         get_next_token(tokens)  # Eat the '(' token
-        state = PossibleLoggerStatementState(TEST_FILENAME)
+        state = self.init_test_state(PossibleLoggerStatementState)
         state.consume_next_token(tokens)
         self.assertEquals(True, state.is_fmt_string())
 
@@ -119,7 +136,7 @@ class PossibleLoggerStatementStateTests(unittest.TestCase):
         sio = StringIO(src)
         expected_tokens = list(tokenize.generate_tokens(sio.readline))
         tokens = expected_tokens[:]
-        state = PossibleLoggerStatementState(TEST_FILENAME)
+        state = self.init_test_state(PossibleLoggerStatementState)
         state.consume_next_token(tokens)  # Eat the 'logger' token
         state.consume_next_token(tokens)  # Eat the '.' token
         state.consume_next_token(tokens)  # Eat the 'debug' token
@@ -129,12 +146,12 @@ class PossibleLoggerStatementStateTests(unittest.TestCase):
         self.assertEquals(expected_tokens, tokens)
 
 
-class LoggerFormatStringStateTests(unittest.TestCase):
+class LoggerFormatStringStateTests(AbstractStateTest):
 
     def make_state(self, src):
         sio = StringIO(src)
         tokens = list(tokenize.generate_tokens(sio.readline))
-        state = LoggerFormatStringState(TEST_FILENAME)
+        state = self.init_test_state(LoggerFormatStringState)
         state.consume_next_token(tokens)  # Eat the 'logger' token
         state.consume_next_token(tokens)  # Eat the '.' token
         state.consume_next_token(tokens)  # Eat the 'debug' to ken
@@ -163,7 +180,7 @@ class LoggerFormatStringStateTests(unittest.TestCase):
                           state.count_format_specifiers(state.current_token))
 
 
-class IntegrationTests(unittest.TestCase):
+class MiscTests(AbstractStateTest):
 
     def test_multiple_lines(self):
         src = """
@@ -172,11 +189,11 @@ class IntegrationTests(unittest.TestCase):
                """
         sio = StringIO(src)
         tokens = list(tokenize.generate_tokens(sio.readline))
-        state = InitialState(TEST_FILENAME)
+        state = self.init_test_state(InitialState)
         new_state, tokens = state.process(tokens)
         self.assertEquals(PossibleLoggerStatementState.NAME, new_state)
         self.assertEquals(tokens[0][1], ".")
-        state = PossibleLoggerStatementState(TEST_FILENAME)
+        state = self.init_test_state(PossibleLoggerStatementState)
         new_state, tokens = state.process(tokens)
 
     def test_ignore_newlines(self):
@@ -186,9 +203,79 @@ class IntegrationTests(unittest.TestCase):
 
         sio = StringIO(src)
         tokens = list(tokenize.generate_tokens(sio.readline))
-        state = InitialState(TEST_FILENAME)
+        state = self.init_test_state(InitialState)
         new_state, tokens = state.process(tokens)
         self.assertEquals(PossibleLoggerStatementState.NAME, new_state)
+
+
+class IntegrationTests(AbstractStateTest):
+
+    def examine_str(self, s):
+        sio = StringIO(s)
+        examine_filelike("__TESTS__", sio, writer=self.writer)
+
+    def test_no_fmt_no_args(self):
+        src = """logger.debug('foo')"""
+        self.examine_str(src)
+        self.assertEquals("", self.output)
+
+    def test_one_fmt_one_arg(self):
+        src = """logger.debug('foo: %s', 1)"""
+        self.examine_str(src)
+        self.assertEquals("", self.output)
+
+    def test_one_fmt_zero_args(self):
+        src = """logger.debug('foo: %s')"""
+        self.examine_str(src)
+        self.assertEquals("Logger statement has 1 format specifiers but"
+                          " only 0 arguments\nAt line 1 of '__TESTS__':"
+                          "\n    logger.debug('foo: %s')\n\n", self.output)
+
+    def test_one_fmt_two_args(self):
+        src = """logger.debug('foo: %s', 1, 2)"""
+        self.examine_str(src)
+        self.assertEquals("", self.output)
+
+    def test_two_fmt_one_args(self):
+        src = """logger.debug('foo: %s %s', 1)"""
+        self.examine_str(src)
+        self.assertEquals("", self.output)
+
+    def test_no_fmt_one_args(self):
+        src = """logger.debug('foo.', 1)"""
+        self.examine_str(src)
+        self.assertEquals("", self.output)
+
+    def test_multiline_no_fmt_no_args(self):
+        src = """
+                 logger.debug('foo'),
+              """
+        self.examine_str(src)
+        self.assertEquals("", self.output)
+
+    def test_multiline_one_fmt_one_arg(self):
+        src = """
+                 logger.debug('foo: %s',
+                              1)
+              """
+        self.examine_str(src)
+        self.assertEquals("", self.output)
+
+    def test_multiline_one_fmt_two_args(self):
+        src = """
+                 logger.debug('foo.',
+                              1, 2)
+              """
+        self.examine_str(src)
+        self.assertEquals("", self.output)
+
+    def test_multiline_two_fmt_one_args(self):
+        src = """
+                 logger.debug('foo: %s %s.',
+                              1)
+              """
+        self.examine_str(src)
+        self.assertEquals("", self.output)
 
 
 if __name__ == '__main__':
