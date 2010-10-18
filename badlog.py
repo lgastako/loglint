@@ -128,6 +128,19 @@ class TokenAnalysisMixin(object):
     def is_percent_sign(self):
         return self.is_token("%", tokenize.OP)
 
+    def is_asterisk(self):
+        return self.is_token("*", tokenize.OP)
+
+    def is_number(self):
+        return self.is_token(required_token_type=tokenize.NUMBER)
+
+    def get_number_from_token(self):
+        n = self.current_token[1]
+        try:
+            return int(n)
+        except ValueError:
+            return float(n)
+
     def is_logger_method(self):
         return self.is_token(self.LOGGER_METHODS, tokenize.NAME)
 
@@ -265,10 +278,41 @@ class LoggerFormatStringState(BaseState, TokenAnalysisMixin):
         # we stop getting strings.  As long as we do get strings
         # we have to add their counts.
 
+        # Oh yeah and surprise the fmt string might be multplied...
+
         while True:
             self.consume_next_token(tokens)
             if self.is_fmt_string():
                 count += self.count_format_specifiers()
+            elif self.is_asterisk():
+                # Ok we have something like:
+                # logger.debug("foo %s" * 5)
+                # (maybe with or without format specifiers...)
+                self.consume_next_token(tokens)
+                if self.is_number():
+                    num = self.get_number_from_token()
+                    count *= num
+                    # The above handles the case where you have something
+                    # like this:
+                    #     logger.debug("%s" * 5, foo, bar, baz, bif, bam)
+                    # but not this:
+                    #     logger.debug("%s" * 5 + "%s" * 6, ...)
+                    # or:
+                    #     logger.debug(5 * "%s" "x")
+                    # etc.  I think we'll have to just call those edge
+                    # cases for now.
+                else:
+                    # in this case we must have something like this:
+                    # logger.debug(foo %s" * count)
+                    # in which case we're not going to be able to figure
+                    # out how many format specifiers there are.  If the
+                    # existing count is 0 then we can safely move on,
+                    # if not, we need to print a warning that we can't
+                    # evaluate it properly...
+                    if count <= 0:
+                        break
+                    self.format_warning("Can't evaluate multiplied"
+                                        " format string")
             else:
                 # Since it wasn't another string we have to put it back
                 self.rewind(tokens)

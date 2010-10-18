@@ -337,6 +337,11 @@ class IntegrationTests(AbstractStateTest):
                           "1 of '__TESTS__':\n    logger.debug('foo: %s' %"
                           " s)\n\n", self.output)
 
+    def test_multiplied_string(self):
+        src = "logger.debug('-' * 30)"
+        self.examine_str(src)
+        self.assertEquals("", self.output)
+
 
 if __name__ == '__main__':
     unittest.main()
