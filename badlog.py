@@ -22,6 +22,21 @@ def get_next_token(tokens):
     return token
 
 
+class Transition(object):
+
+    def __init__(self, new_state_name, tokens, *args, **kwargs):
+        self.new_state_name = new_state_name
+        self.tokens = tokens
+        self.args = args
+        self.kwargs = kwargs
+
+    def __unicode__(self):
+        return "Transition[new_state_name=%s]" % self.new_state_name
+
+    def __str__(self):
+        return unicode(self).encode("utf-8")
+
+
 class BaseState(object):
 
     def __init__(self, filename, writer):
@@ -70,19 +85,130 @@ class BaseState(object):
             return value in required_value
         return value == required_value
 
+
+class UnreachableState(BaseState):
+
+    NAME = "unreachable_state"
+
+    def process(self, tokens):
+        self.format_error("Got into a state we should never get into."
+                          "  Don't know how to proceed.")
+        return Transition("the_end", tokens)
+
+
+class EndState(BaseState):
+
+    NAME = "the_end"
+
+    def process(self, _tokens):
+        raise StopIteration
+
+
+class TokenAnalysisMixin(object):
+
     def is_token(self, required_token_string=None, required_token_type=None):
         token_type, token_string = self.current_token[0:2]
         return (self._matches_token_req(token_type, required_token_type) and
                 self._matches_token_req(token_string, required_token_string))
 
-
-class OpenParenMixin(object):
-
     def is_open_paren(self):
-        return self.is_token("(", 51)
+        return self.is_token("(", tokenize.OP)
+
+    def is_close_paren(self):
+        return self.is_token(")", tokenize.OP)
+
+    def is_comma(self):
+        # TODO: token_type
+        return self.is_token(",")
+
+    def is_dot(self):
+        return self.is_token(".", tokenize.OP)
+
+    def is_logger_method(self):
+        return self.is_token(self.LOGGER_METHODS, tokenize.NAME)
+
+    def is_fmt_string(self):
+        return self.is_token(required_token_type=tokenize.STRING)
+
+    def is_possible_logger_statement(self):
+        return self.is_token(self.POSSIBLE_LOGGER_STRINGS, 1)
 
 
-class LoggerFormatStringState(BaseState, OpenParenMixin):
+class CountingArgsState(BaseState, TokenAnalysisMixin):
+
+    NAME = "counting_args"
+
+    def __init__(self, filename, writer, expected_args, found_args):
+        super(CountingArgsState, self).__init__(filename, writer)
+        self.expected_args = expected_args
+        self.found_args = found_args
+        self.open_parens = 0
+
+    def format_expected_actual_args_difference(self):
+        self.format_error("Logger statement has %d format"
+                          " specifiers but %d argument(s)." %
+                          (self.expected_args,
+                           self.found_args))
+
+    def process(self, tokens):
+
+        self.consume_next_token(tokens)
+
+        # We first wind up in this state after processing the fmt
+        # string and only if there were expected args... so if we land
+        # here and right away there's a close paren we need to
+        # bail...
+
+        if self.found_args == 0 and self.is_close_paren():
+            self.format_expected_actual_args_difference()
+            return Transition("initial", tokens)
+
+        # Ok, so if we've made it here then we found something other
+        # than a close paren which means it's an arg.. so we increment
+        # the found count and now the problem is that it could be a
+        # simple arg like "5" or it could be a complex nested arg like
+        # "foo.bar(baz, bif(bam, lambda: 5))" so now we need to
+        # basically just swallow everything checking for balanced
+        # parens until we hit either a comma or a close paren.  If
+        # it's a comma we increment the found count again and keep
+        # going.  If it's a close paren then we need to check if
+        # found_args matches expected_args and react accordingly.
+        self.found_args += 1
+
+        while True:
+            self.consume_next_token(tokens)
+
+            # Let's handle the simpliest case first:
+            if self.is_comma():
+                # We need to make sure that this isn't a 1-tuple argument
+                # like so: foo(5,)
+                # So we peek at the next token...
+                self.consume_next_token(tokens)
+                one_tuple = self.is_close_paren()
+                self.rewind(tokens)
+
+                if not one_tuple:
+                    self.found_args += 1
+
+            # Now the slightly more complicated case:
+            elif self.is_close_paren():
+                # The close paren case is simple if aren't in a nested
+                # scope...we just exit the loop because we're done
+                if self.open_parens <= 0:
+                    break
+                # If we're in a nested scope then we decrement the
+                # nesting level and continue
+                self.open_parens -= 1
+
+        # If we're broken out of the loop then we reached the last matching
+        # paren so now we just need to confirm whether we found the appropriate
+        # number of args.
+        if self.expected_args != self.found_args:
+            self.format_expected_actual_args_difference()
+        return Transition("initial", tokens)
+
+
+class LoggerFormatStringState(BaseState, TokenAnalysisMixin):
 
     NAME = "logger_format_string"
 
@@ -105,13 +231,6 @@ class LoggerFormatStringState(BaseState, OpenParenMixin):
                     pass
         return count
 
-    def is_close_paren(self):
-        return self.is_token(")", 51)
-
-    def is_comma(self):
-        # TODO: token_type
-        return self.is_token(",")
-
     def process(self, tokens):
         # At this point the format string is going to be the first
         # token.  We need to parse it and figure out how many format
@@ -126,62 +245,38 @@ class LoggerFormatStringState(BaseState, OpenParenMixin):
         self.consume_next_token(tokens)
         count = self.count_format_specifiers(self.current_token)
         if count > 0:
-            confirmed = 0
-            open_parens = 0
-            while confirmed < count:
-                try:
-                    self.consume_next_token(tokens)
-                except IndexError:
-                    self.format_error("ERROR! Ran out of tokens looking for"
-                                      " a close paren.")
-                    return None, None
-
-                if self.is_comma():
-                    continue
-
-                if self.is_open_paren():
-                    open_parens += 1
-                elif self.is_close_paren():
-                    # XXX: doesn't work because an arg could be a
-                    # function call.  have to deal with
-                    # sub-expressions in a generic way.
-                    if open_parens > 0:
-                        open_parens -= 1
-                        confirmed += 1
-                    else:
-                        self.format_diff_error(count, confirmed)
-                        return "initial", tokens
-                elif open_parens <= 0:
-                    confirmed += 1
-
-            # If we made it here that means that confirmed hit count,
-            # so now we need to check and make sure that the next
-            # token is a close paren.
-            return self.confirm_close_paren(tokens, count, confirmed)
+            return Transition("counting_args", tokens, count, 0)
         else:
             # No format specifiers, so read the next token and confirm
             # that it's a close paren.
             return self.confirm_close_paren(tokens, count, 0)
-        return "OH SHIT HOW DID WE GET HERE?", None
+        return Transition("unreachable_state", tokens)
 
     def format_diff_error(self, count, confirmed):
         self.format_error("Logger statement has %d format"
-                          " specifiers but %d arguments" %
-                          (count, confirmed))
+                          " specifiers but %d argument(s)." %
+                          (count,
+                           confirmed))
 
     def confirm_close_paren(self, tokens, count, confirmed):
-        extra = 0
-        while True:
-            self.consume_next_token(tokens)
-            if self.is_close_paren():
-                break
-            extra += 1
-        if extra > 0:
-            self.format_diff_error(count, confirmed + extra)
-        return "initial", tokens
+        # extra = 0
+        # while True:
+        #     self.consume_next_token(tokens)
+        #     if self.is_close_paren():
+        #         break
+        #     extra += 1
+        # if extra > 0:
+        #     self.format_diff_error(count, confirmed + extra)
+        # return Transition("initial", tokens)
+        self.consume_next_token(tokens)
+        if self.is_close_paren():
+            return Transition("initial", tokens)
+        else:
+            self.rewind(tokens)
+            return Transition("counting_args", tokens, 0, 0)
 
 
-class PossibleLoggerStatementState(BaseState, OpenParenMixin):
+class PossibleLoggerStatementState(BaseState, TokenAnalysisMixin):
 
     NAME = "possible_logger_statement"
 
@@ -195,16 +290,7 @@ class PossibleLoggerStatementState(BaseState, OpenParenMixin):
 
     def back_to_initial(self, tokens):
         self.rewind_all(tokens)
-        return "initial", tokens
-
-    def is_dot(self):
-        return self.is_token(".", 51)
-
-    def is_logger_method(self):
-        return self.is_token(self.LOGGER_METHODS, 1)
-
-    def is_fmt_string(self):
-        return self.is_token(required_token_type=3)
+        return Transition("initial", tokens)
 
     def process(self, tokens):
         # If we get here, the previous state has already swallowed the
@@ -238,20 +324,16 @@ class PossibleLoggerStatementState(BaseState, OpenParenMixin):
             # so we want to put it back for the next state to access
             # and then transition to that state
             self.rewind(tokens)
-            return "logger_format_string", tokens
+            return Transition("logger_format_string", tokens)
         except StopIteration:
             return self.back_to_initial()
 
 
-class InitialState(BaseState):
+class InitialState(BaseState, TokenAnalysisMixin):
 
     NAME = "initial"
 
     POSSIBLE_LOGGER_STRINGS = set(["logger", "LOG", "log", "LOGGER"])
-
-    def is_possible_logger_statement(self):
-        token_type, token_string, _, _, _ = self.current_token
-        return token_type == 1 and token_string in self.POSSIBLE_LOGGER_STRINGS
 
     def process(self, tokens):
         # In this state, if we encounter a possible logger statement
@@ -261,10 +343,10 @@ class InitialState(BaseState):
         try:
             self.consume_next_token(tokens)
         except IndexError:
-            return None, None
+            return Transition("the_end", tokens)
         if self.is_possible_logger_statement():
-            return "possible_logger_statement", tokens
-        return "initial", tokens
+            return Transition("possible_logger_statement", tokens)
+        return Transition("initial", tokens)
 
 
 class BrokenLoggingDetectorStateMachine(object):
@@ -273,17 +355,24 @@ class BrokenLoggingDetectorStateMachine(object):
         self.states = {}
         for state in [InitialState,
                       PossibleLoggerStatementState,
-                      LoggerFormatStringState]:
+                      LoggerFormatStringState,
+                      CountingArgsState,
+                      EndState]:
             self.states[state.NAME] = state
+
+    def make_new_state(self, filename, writer, transition):
+        new_state_class = self.states[transition.new_state_name]
+        new_state = new_state_class(*([filename,
+                                       writer] + list(transition.args)),
+                                     **transition.kwargs)
+        return new_state
 
     def consume(self, tokens, filename, writer):
         state = InitialState(filename, writer)
         while True:
             try:
-                new_state_name, tokens = state.process(tokens)
-                if new_state_name is None:
-                    break
-                state = self.states[new_state_name](filename, writer)
+                transition = state.process(tokens)
+                state = self.make_new_state(filename, writer, transition)
             except StopIteration:
                 break
 

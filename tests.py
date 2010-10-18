@@ -9,6 +9,7 @@ from badlog import BaseState
 from badlog import InitialState
 from badlog import PossibleLoggerStatementState
 from badlog import LoggerFormatStringState
+from badlog import CountingArgsState
 
 TEST_FILENAME = "test.py"
 
@@ -19,14 +20,17 @@ class AbstractStateTest(unittest.TestCase):
         self.writer = StringIO()
         self._output = None
 
-    def init_test_state(self, state_class):
-        return state_class(TEST_FILENAME, self.writer)
+    def init_test_state(self, state_class, *args, **kwargs):
+        return state_class(TEST_FILENAME, self.writer, *args, **kwargs)
 
     @property
     def output(self):
         if not self._output:
             self._output = self.writer.getvalue()
         return self._output
+
+    def assert_state(self, expected_state, transition):
+        self.assertEquals(expected_state.NAME, transition.new_state_name)
 
 
 class BaseStateTests(AbstractStateTest):
@@ -63,18 +67,18 @@ class InitialStateTests(AbstractStateTest):
         sio = StringIO(src)
         tokens = list(tokenize.generate_tokens(sio.readline))
         state = self.init_test_state(InitialState)
-        new_state, tokens = state.process(tokens)
-        self.assertEquals(PossibleLoggerStatementState.NAME, new_state)
-        self.assertEquals(tokens[0][1], ".")
+        transition = state.process(tokens)
+        self.assert_state(PossibleLoggerStatementState, transition)
+        self.assertEquals(".", transition.tokens[0][1])
 
     def test_state_transition_on_not_valid_logger(self):
         src = "foo('hi there')"
         sio = StringIO(src)
         tokens = list(tokenize.generate_tokens(sio.readline))
         state = self.init_test_state(InitialState)
-        new_state, tokens = state.process(tokens)
-        self.assertEquals(InitialState.NAME, new_state)
-        self.assertEquals(tokens[0][1], "(")
+        transition = state.process(tokens)
+        self.assert_state(InitialState, transition)
+        self.assertEquals("(", transition.tokens[0][1])
 
 
 class PossibleLoggerStatementStateTests(AbstractStateTest):
@@ -85,9 +89,9 @@ class PossibleLoggerStatementStateTests(AbstractStateTest):
         tokens = list(tokenize.generate_tokens(sio.readline))
         get_next_token(tokens)  # Eat the 'logger' token
         state = self.init_test_state(PossibleLoggerStatementState)
-        new_state, tokens = state.process(tokens)
-        self.assertEquals(LoggerFormatStringState.NAME, new_state)
-        self.assertEquals(tokens[0][1], "'hi there'")
+        transition = state.process(tokens)
+        self.assert_state(LoggerFormatStringState, transition)
+        self.assertEquals("'hi there'", transition.tokens[0][1])
 
     def test_state_transition_on_not_valid_logger(self):
         src = "logger('hi there')"
@@ -95,9 +99,9 @@ class PossibleLoggerStatementStateTests(AbstractStateTest):
         tokens = list(tokenize.generate_tokens(sio.readline))
         get_next_token(tokens)  # Eat the 'logger' token
         state = self.init_test_state(PossibleLoggerStatementState)
-        new_state, tokens = state.process(tokens)
-        self.assertEquals(InitialState.NAME, new_state)
-        self.assertEquals(tokens[0][1], "(")
+        transition = state.process(tokens)
+        self.assert_state(InitialState, transition)
+        self.assertEquals("(", transition.tokens[0][1])
 
     def test_is_dot(self):
         src = "logger.debug('hi there')"
@@ -141,8 +145,8 @@ class PossibleLoggerStatementStateTests(AbstractStateTest):
         state.consume_next_token(tokens)  # Eat the '.' token
         state.consume_next_token(tokens)  # Eat the 'debug' token
         state.consume_next_token(tokens)  # Eat the '(' token
-        new_state, tokens = state.back_to_initial(tokens)
-        self.assertEquals("initial", new_state)
+        transition = state.back_to_initial(tokens)
+        self.assert_state(InitialState, transition)
         self.assertEquals(expected_tokens, tokens)
 
 
@@ -190,11 +194,19 @@ class MiscTests(AbstractStateTest):
         sio = StringIO(src)
         tokens = list(tokenize.generate_tokens(sio.readline))
         state = self.init_test_state(InitialState)
-        new_state, tokens = state.process(tokens)
-        self.assertEquals(PossibleLoggerStatementState.NAME, new_state)
-        self.assertEquals(tokens[0][1], ".")
+        transition = state.process(tokens)
+        self.assert_state(PossibleLoggerStatementState, transition)
+        self.assertEquals(transition.tokens[0][1], ".")
         state = self.init_test_state(PossibleLoggerStatementState)
-        new_state, tokens = state.process(tokens)
+        transition = state.process(tokens)
+        self.assert_state(LoggerFormatStringState, transition)
+        self.assertEquals(transition.tokens[0][1], "'hi %s'")
+        state = self.init_test_state(LoggerFormatStringState)
+        transition = state.process(tokens)
+        self.assert_state(CountingArgsState, transition)
+        state = self.init_test_state(CountingArgsState, 0, 0)
+        transition = state.process(tokens)
+        self.assert_state(InitialState, transition)
 
     def test_ignore_newlines(self):
         src = """
@@ -204,8 +216,8 @@ class MiscTests(AbstractStateTest):
         sio = StringIO(src)
         tokens = list(tokenize.generate_tokens(sio.readline))
         state = self.init_test_state(InitialState)
-        new_state, tokens = state.process(tokens)
-        self.assertEquals(PossibleLoggerStatementState.NAME, new_state)
+        transition = state.process(tokens)
+        self.assert_state(PossibleLoggerStatementState, transition)
 
 
 class IntegrationTests(AbstractStateTest):
@@ -228,23 +240,30 @@ class IntegrationTests(AbstractStateTest):
         src = """logger.debug('foo: %s')"""
         self.examine_str(src)
         self.assertEquals("Logger statement has 1 format specifiers but"
-                          " only 0 arguments\nAt line 1 of '__TESTS__':"
+                          " 0 argument(s).\nAt line 1 of '__TESTS__':"
                           "\n    logger.debug('foo: %s')\n\n", self.output)
 
     def test_one_fmt_two_args(self):
         src = """logger.debug('foo: %s', 1, 2)"""
         self.examine_str(src)
-        self.assertEquals("", self.output)
+        self.assertEquals("Logger statement has 1 format specifiers but 2"
+                          " argument(s).\nAt line 1 of '__TESTS__':\n "
+                          "   logger.debug('foo: %s', 1, 2)\n\n",
+                          self.output)
 
     def test_two_fmt_one_args(self):
         src = """logger.debug('foo: %s %s', 1)"""
         self.examine_str(src)
-        self.assertEquals("", self.output)
+        self.assertEquals("Logger statement has 2 format specifiers but 1 "
+                          "argument(s).\nAt line 1 of '__TESTS__':\n    l"
+                          "ogger.debug('foo: %s %s', 1)\n\n", self.output)
 
     def test_no_fmt_one_args(self):
         src = """logger.debug('foo.', 1)"""
         self.examine_str(src)
-        self.assertEquals("", self.output)
+        self.assertEquals("Logger statement has 0 format specifiers but 1"
+                          " argument(s).\nAt line 1 of '__TESTS__':\n    "
+                          "logger.debug('foo.', 1)\n\n", self.output)
 
     def test_multiline_no_fmt_no_args(self):
         src = """
@@ -263,11 +282,14 @@ class IntegrationTests(AbstractStateTest):
 
     def test_multiline_one_fmt_two_args(self):
         src = """
-                 logger.debug('foo.',
+                 logger.debug('foo: %s',
                               1, 2)
               """
         self.examine_str(src)
-        self.assertEquals("", self.output)
+        self.assertEquals("Logger statement has 1 format specifiers but 2"
+                          " argument(s).\nAt line 3 of '__TESTS__':\n "
+                          "                                 1, 2)\n\n",
+                          self.output)
 
     def test_multiline_two_fmt_one_args(self):
         src = """
@@ -275,7 +297,9 @@ class IntegrationTests(AbstractStateTest):
                               1)
               """
         self.examine_str(src)
-        self.assertEquals("", self.output)
+        self.assertEquals("Logger statement has 2 format specifiers but 1 "
+                          "argument(s).\nAt line 3 of '__TESTS__':\n   "
+                          "                               1)\n\n", self.output)
 
 
 if __name__ == '__main__':
