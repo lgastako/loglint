@@ -313,6 +313,14 @@ class IntegrationTests(AbstractStateTest):
         self.examine_str(src)
         self.assertEquals("", self.output)
 
+    def test_proper_paren_matching(self):
+        src = """
+            logger.debug("Attempting to merge model lists A(%d models) "
+                         "and B(%d models)", len(a), len(b))
+        """
+        self.examine_str(src)
+        self.assertEquals("", self.output)
+
 
 if __name__ == '__main__':
     unittest.main()

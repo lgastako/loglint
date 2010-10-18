@@ -201,6 +201,8 @@ class CountingArgsState(BaseState, TokenAnalysisMixin):
                 # If we're in a nested scope then we decrement the
                 # nesting level and continue
                 self.open_parens -= 1
+            elif self.is_open_paren():
+                self.open_parens += 1
 
         # If we're broken out of the loop then we reached the last matching
         # paren so now we just need to confirm whether we found the appropriate
