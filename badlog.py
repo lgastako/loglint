@@ -41,10 +41,11 @@ class Transition(object):
 
 class BaseState(object):
 
-    def __init__(self, filename, writer):
+    def __init__(self, filename, writer, options):
         self.filename = filename
         self.writer = writer
         self.consumed_tokens = []
+        self.options = options
 
     @property
     def NAME(self):
@@ -155,8 +156,8 @@ class CountingArgsState(BaseState, TokenAnalysisMixin):
 
     NAME = "counting_args"
 
-    def __init__(self, filename, writer, expected_args, found_args):
-        super(CountingArgsState, self).__init__(filename, writer)
+    def __init__(self, filename, writer, options, expected_args, found_args):
+        super(CountingArgsState, self).__init__(filename, writer, options)
         self.expected_args = expected_args
         self.found_args = found_args
         self.open_parens = 0
@@ -184,9 +185,10 @@ class CountingArgsState(BaseState, TokenAnalysisMixin):
         # format string.  People shouldn't do this in logger
         # statements but unfortunately they do it all the time.
         if self.is_percent_sign():
-            self.format_error("Logger statement uses % operator for"
-                              " formatting instead of letting logger"
-                              " handle it.")
+            if not self.options.ignore_pct_formats:
+                self.format_error("Logger statement uses % operator for"
+                                  " formatting instead of letting logger"
+                                  " handle it.")
             return Transition("initial", tokens)
 
         # Ok, so if we've made it here then we found something other
@@ -425,35 +427,39 @@ class BrokenLoggingDetectorStateMachine(object):
                       EndState]:
             self.states[state.NAME] = state
 
-    def make_new_state(self, filename, writer, transition):
+    def make_new_state(self, filename, writer, options, transition):
         new_state_class = self.states[transition.new_state_name]
         new_state = new_state_class(*([filename,
-                                       writer] + list(transition.args)),
+                                       writer,
+                                       options] + list(transition.args)),
                                      **transition.kwargs)
         return new_state
 
-    def consume(self, tokens, filename, writer):
-        state = InitialState(filename, writer)
+    def consume(self, tokens, filename, writer, options):
+        state = InitialState(filename, writer, options)
         while True:
             try:
                 transition = state.process(tokens)
-                state = self.make_new_state(filename, writer, transition)
+                state = self.make_new_state(filename,
+                                            writer,
+                                            options,
+                                            transition)
             except StopIteration:
                 break
 
 
-def examine_filelike(filename, filelike, writer=sys.stdout):
+def examine_filelike(filename, filelike, options, writer=sys.stdout):
     tokens = list(tokenize.generate_tokens(filelike.readline))
     machine = BrokenLoggingDetectorStateMachine()
-    machine.consume(tokens, filename, writer)
+    machine.consume(tokens, filename, writer, options)
 
 
-def examine(filename, verbose, writer=sys.stdout):
-    if verbose:
+def examine(filename, options, writer=sys.stdout):
+    if options.verbose:
         writer.write("Checking file: %s\n" % filename)
     try:
         with open(filename) as f:
-            examine_filelike(filename, f, writer=writer)
+            examine_filelike(filename, f, options, writer=writer)
     except IOError, ex:
         args = ex.args
         if isinstance(args, tuple):
@@ -461,15 +467,15 @@ def examine(filename, verbose, writer=sys.stdout):
                 raise
 
 
-def recursively_examine(filename, verbose, writer=sys.stdout):
+def recursively_examine(filename, options, writer=sys.stdout):
     for root, dirs, files in os.walk(filename):
         for fn in files:
             if fn.endswith(".py"):
                 full_path = os.path.join(root, fn)
-                examine(full_path, verbose, writer=writer)
+                examine(full_path, options, writer=writer)
 
 
-def main():
+def parse_args():
     parser = optparse.OptionParser()
     parser.add_option("-v", "--verbose",
                       help="enable verbose output",
@@ -477,7 +483,14 @@ def main():
     parser.add_option("-d", "--debug",
                       help="enable debugging output",
                       action="store_true")
-    options, args = parser.parse_args()
+    parser.add_option("--ignore-pct-formats",
+                      help="don't warn on % formats in logger statements",
+                      action="store_true")
+    return parser.parse_args()
+
+
+def main():
+    options, args = parse_args()
 
     if options.debug:
         logging.basicConfig(level=logging.DEBUG)
@@ -486,9 +499,9 @@ def main():
 
     for filename in args:
         if os.path.isdir(filename):
-            recursively_examine(filename, options.verbose)
+            recursively_examine(filename, options)
         else:
-            examine(filename, options.verbose)
+            examine(filename, options)
 
 
 if __name__ == '__main__':

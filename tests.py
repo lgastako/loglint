@@ -3,6 +3,7 @@ import tokenize
 
 from StringIO import StringIO
 
+from badlog import parse_args
 from badlog import get_next_token
 from badlog import examine_filelike
 from badlog import BaseState
@@ -19,9 +20,14 @@ class AbstractStateTest(unittest.TestCase):
     def setUp(self):
         self.writer = StringIO()
         self._output = None
+        self.options, _args = parse_args()
 
     def init_test_state(self, state_class, *args, **kwargs):
-        return state_class(TEST_FILENAME, self.writer, *args, **kwargs)
+        return state_class(TEST_FILENAME,
+                           self.writer,
+                           self.options,
+                           *args,
+                           **kwargs)
 
     @property
     def output(self):
@@ -220,7 +226,7 @@ class IntegrationTests(AbstractStateTest):
 
     def examine_str(self, s):
         sio = StringIO(s)
-        examine_filelike("__TESTS__", sio, writer=self.writer)
+        examine_filelike("__TESTS__", sio, self.options, writer=self.writer)
 
     def test_no_fmt_no_args(self):
         src = """logger.debug('foo')"""
