@@ -301,6 +301,22 @@ class IntegrationTests(AbstractStateTest):
                           "argument(s).\nAt line 3 of '__TESTS__':\n   "
                           "                               1)\n\n", self.output)
 
+    def test_multiple_concatenated_strings_as_fmt_string(self):
+        src = """
+                logger.debug("a "
+                             "b")
+        """
+        self.examine_str(src)
+        self.assertEquals("", self.output)
+
+    def test_explicit_continuation_character_in_fmt_string(self):
+        src = """
+                logger.debug("a " \
+                             "b")
+        """
+        self.examine_str(src)
+        self.assertEquals("", self.output)
+
 
 if __name__ == '__main__':
     unittest.main()

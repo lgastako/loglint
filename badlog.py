@@ -17,6 +17,7 @@ IGNORED_TOKENS = set([tokenize.INDENT,
 def get_next_token(tokens):
     while True:
         token = tokens.pop(0)
+        logger.debug("Token: %s" % (token,))
         if token[0] not in IGNORED_TOKENS:
             break
     return token
@@ -25,6 +26,7 @@ def get_next_token(tokens):
 class Transition(object):
 
     def __init__(self, new_state_name, tokens, *args, **kwargs):
+        logger.debug("Transition: %s" % new_state_name)
         self.new_state_name = new_state_name
         self.tokens = tokens
         self.args = args
@@ -259,15 +261,6 @@ class LoggerFormatStringState(BaseState, TokenAnalysisMixin):
                            confirmed))
 
     def confirm_close_paren(self, tokens, count, confirmed):
-        # extra = 0
-        # while True:
-        #     self.consume_next_token(tokens)
-        #     if self.is_close_paren():
-        #         break
-        #     extra += 1
-        # if extra > 0:
-        #     self.format_diff_error(count, confirmed + extra)
-        # return Transition("initial", tokens)
         self.consume_next_token(tokens)
         if self.is_close_paren():
             return Transition("initial", tokens)
@@ -403,7 +396,15 @@ def main():
     parser.add_option("-v", "--verbose",
                       help="enable verbose output",
                       action="store_true")
+    parser.add_option("-d", "--debug",
+                      help="enable debugging output",
+                      action="store_true")
     options, args = parser.parse_args()
+
+    if options.debug:
+        logging.basicConfig(level=logging.DEBUG)
+    else:
+        logging.basicConfig(level=logging.INFO)
 
     for filename in args:
         if os.path.isdir(filename):
