@@ -321,6 +321,14 @@ class IntegrationTests(AbstractStateTest):
         self.examine_str(src)
         self.assertEquals("", self.output)
 
+    def test_nested_commas(self):
+        src = """
+                logger.info("blah: [%s]",
+                            ",".join(map(str, stuff)))
+        """
+        self.examine_str(src)
+        self.assertEquals("", self.output)
+
 
 if __name__ == '__main__':
     unittest.main()

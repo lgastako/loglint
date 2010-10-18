@@ -120,8 +120,7 @@ class TokenAnalysisMixin(object):
         return self.is_token(")", tokenize.OP)
 
     def is_comma(self):
-        # TODO: token_type
-        return self.is_token(",")
+        return self.is_token(",", tokenize.OP)
 
     def is_dot(self):
         return self.is_token(".", tokenize.OP)
@@ -181,7 +180,7 @@ class CountingArgsState(BaseState, TokenAnalysisMixin):
             self.consume_next_token(tokens)
 
             # Let's handle the simpliest case first:
-            if self.is_comma():
+            if self.is_comma() and self.open_parens <= 0:
                 # We need to make sure that this isn't a 1-tuple argument
                 # like so: foo(5,)
                 # So we peek at the next token...
@@ -396,8 +395,14 @@ def examine_filelike(filename, filelike, writer=sys.stdout):
 def examine(filename, verbose, writer=sys.stdout):
     if verbose:
         writer.write("Checking file: %s\n" % filename)
-    with open(filename) as f:
-        examine_filelike(filename, f, writer=writer)
+    try:
+        with open(filename) as f:
+            examine_filelike(filename, f, writer=writer)
+    except IOError, ex:
+        args = ex.args
+        if isinstance(args, tuple):
+            if args[0] != 2:  # No such file or directory
+                raise
 
 
 def recursively_examine(filename, verbose, writer=sys.stdout):
