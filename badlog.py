@@ -214,9 +214,8 @@ class LoggerFormatStringState(BaseState, TokenAnalysisMixin):
 
     NAME = "logger_format_string"
 
-    # TODO: Heavy unit tests.
-    def count_format_specifiers(self, token):
-        string = token[1]
+    def count_format_specifiers(self):
+        string = self.current_token[1]
         count = 0
         skip = False
         for index in xrange(len(string)):
@@ -245,7 +244,23 @@ class LoggerFormatStringState(BaseState, TokenAnalysisMixin):
         # should return to the initial state right after the close
         # paren.
         self.consume_next_token(tokens)
-        count = self.count_format_specifiers(self.current_token)
+        count = self.count_format_specifiers()
+
+        # Now we have the first format specifier string, but there
+        # could be others concatenated or separated with explicit
+        # continuation characters, so we need to peek ahead until
+        # we stop getting strings.  As long as we do get strings
+        # we have to add their counts.
+
+        while True:
+            self.consume_next_token(tokens)
+            if self.is_fmt_string():
+                count += self.count_format_specifiers()
+            else:
+                # Since it wasn't another string we have to put it back
+                self.rewind(tokens)
+                break
+
         if count > 0:
             return Transition("counting_args", tokens, count, 0)
         else:

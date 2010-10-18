@@ -165,23 +165,19 @@ class LoggerFormatStringStateTests(AbstractStateTest):
 
     def test_count_format_specifiers_none(self):
         state = self.make_state("logger.debug('foo')")
-        self.assertEquals(0,
-                          state.count_format_specifiers(state.current_token))
+        self.assertEquals(0, state.count_format_specifiers())
 
     def test_count_format_specifiers_one(self):
         state = self.make_state("logger.debug('foo: %s')")
-        self.assertEquals(1,
-                          state.count_format_specifiers(state.current_token))
+        self.assertEquals(1, state.count_format_specifiers())
 
     def test_count_format_specifiers_two(self):
         state = self.make_state("logger.debug('foo: %s %d')")
-        self.assertEquals(2,
-                          state.count_format_specifiers(state.current_token))
+        self.assertEquals(2, state.count_format_specifiers())
 
     def test_count_format_specifiers_with_escaped_percent(self):
         state = self.make_state("logger.debug('foo: %s 50%% %d')")
-        self.assertEquals(2,
-                          state.count_format_specifiers(state.current_token))
+        self.assertEquals(2, state.count_format_specifiers())
 
 
 class MiscTests(AbstractStateTest):
