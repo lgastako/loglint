@@ -125,6 +125,9 @@ class TokenAnalysisMixin(object):
     def is_dot(self):
         return self.is_token(".", tokenize.OP)
 
+    def is_percent_sign(self):
+        return self.is_token("%", tokenize.OP)
+
     def is_logger_method(self):
         return self.is_token(self.LOGGER_METHODS, tokenize.NAME)
 
@@ -162,6 +165,15 @@ class CountingArgsState(BaseState, TokenAnalysisMixin):
 
         if self.found_args == 0 and self.is_close_paren():
             self.format_expected_actual_args_difference()
+            return Transition("initial", tokens)
+
+        # We need to handle the case where someone put a % after the
+        # format string.  People shouldn't do this in logger
+        # statements but unfortunately they do it all the time.
+        if self.is_percent_sign():
+            self.format_error("Logger statement uses % operator for"
+                              " formatting instead of letting logger"
+                              " handle it.")
             return Transition("initial", tokens)
 
         # Ok, so if we've made it here then we found something other

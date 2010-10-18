@@ -329,6 +329,14 @@ class IntegrationTests(AbstractStateTest):
         self.examine_str(src)
         self.assertEquals("", self.output)
 
+    def test_percent_after_fmt(self):
+        src = "logger.debug('foo: %s' % s)"
+        self.examine_str(src)
+        self.assertEquals("Logger statement uses % operator for formatting"
+                          " instead of letting logger handle it.\nAt line "
+                          "1 of '__TESTS__':\n    logger.debug('foo: %s' %"
+                          " s)\n\n", self.output)
+
 
 if __name__ == '__main__':
     unittest.main()
